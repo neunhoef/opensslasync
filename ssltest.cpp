@@ -108,7 +108,7 @@ int main(int argc, char* argv[]) {
   if (SSL_CTX_load_verify_locations(ssl_ctx_c.get(), "certificates/ca-root.pem", nullptr) != 1) {
     print_errors_and_exit("Error loading CAfile");
   }
-  SSL_CTX_use_certificate_file(ssl_ctx_c.get(), "certificates/client-crt.pem", SSL_FILETYPE_PEM);
+  SSL_CTX_use_certificate_chain_file(ssl_ctx_c.get(), "certificates/client.keyfile");
   SSL_CTX_use_PrivateKey_file(ssl_ctx_c.get(), "certificates/client-key.pem", SSL_FILETYPE_PEM);
   UniquePtr<SSL> ssl_c{SSL_new(ssl_ctx_c.get())};
   BIO* rbio_c{BIO_new(BIO_s_mem())};
@@ -123,14 +123,11 @@ int main(int argc, char* argv[]) {
   UniquePtr<SSL_CTX> ssl_ctx_s{SSL_CTX_new(TLS_method())};
   SSL_CTX_set_min_proto_version(ssl_ctx_s.get(), TLS1_2_VERSION);
   if (SSL_CTX_use_certificate_chain_file(ssl_ctx_s.get(), "certificates/server.keyfile") <= 0) {
-
     print_errors_and_exit("Error loading server certificate");
   }
-#if 0
   if (SSL_CTX_use_PrivateKey_file(ssl_ctx_s.get(), "certificates/server-key.pem", SSL_FILETYPE_PEM) <= 0) {
-      print_errors_and_exit("Error loading server private key");
+    print_errors_and_exit("Error loading server private key");
   }
-#endif
   SSL_CTX_set_verify(ssl_ctx_s.get(), SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT | SSL_VERIFY_CLIENT_ONCE, nullptr);
   UniquePtr<SSL> ssl_s{SSL_new(ssl_ctx_s.get())};
   BIO* rbio_s = BIO_new(BIO_s_mem());

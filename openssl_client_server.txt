@@ -1,0 +1,3 @@
+openssl s_client -connect localhost:8000 -cert client.keyfile -CAfile ca-root.pem -Verify 1
+
+openssl s_server -port 8000 -cert server.keyfile -Verify 1
