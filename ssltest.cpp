@@ -102,19 +102,33 @@ int main(int argc, char* argv[]) {
   // Prepare client:
   UniquePtr<SSL_CTX> ssl_ctx_c{SSL_CTX_new(TLS_method())};
   SSL_CTX_set_min_proto_version(ssl_ctx_c.get(), TLS1_2_VERSION);
+  SSL_CTX_set_verify(ssl_ctx_c.get(),
+      SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+
+  // Trusted CA files for chain verification:
   if (SSL_CTX_set_default_verify_paths(ssl_ctx_c.get()) != 1) {
     print_errors_and_exit("Error loading trust store");
   }
   if (SSL_CTX_load_verify_locations(ssl_ctx_c.get(), "certificates/ca-root.pem", nullptr) != 1) {
     print_errors_and_exit("Error loading CAfile");
   }
-  SSL_CTX_use_certificate_chain_file(ssl_ctx_c.get(), "certificates/client.keyfile");
+
+  // Client certificates and private key:
+  SSL_CTX_use_certificate_file(ssl_ctx_c.get(), "certificates/client-crt.pem", SSL_FILETYPE_PEM);
   SSL_CTX_use_PrivateKey_file(ssl_ctx_c.get(), "certificates/client-key.pem", SSL_FILETYPE_PEM);
+  int res = SSL_CTX_check_private_key(ssl_ctx_c.get());
+  if (res != 1) {
+    print_errors_and_exit("Error loading CAfile and client key");
+  }
+
+  // Set up an SSL object and attached mem bios:
   UniquePtr<SSL> ssl_c{SSL_new(ssl_ctx_c.get())};
   BIO* rbio_c{BIO_new(BIO_s_mem())};
   SSL_set0_rbio(ssl_c.get(), rbio_c);
   BIO* wbio_c{BIO_new(BIO_s_mem())};
   SSL_set0_wbio(ssl_c.get(), wbio_c);
+
+  // We are a client connecting to "localhost":
   SSL_set_connect_state(ssl_c.get());
   SSL_set_tlsext_host_name(ssl_c.get(), "localhost");
   SSL_set1_host(ssl_c.get(), "localhost");
@@ -122,22 +136,44 @@ int main(int argc, char* argv[]) {
   // Prepare server:
   UniquePtr<SSL_CTX> ssl_ctx_s{SSL_CTX_new(TLS_method())};
   SSL_CTX_set_min_proto_version(ssl_ctx_s.get(), TLS1_2_VERSION);
-  if (SSL_CTX_use_certificate_chain_file(ssl_ctx_s.get(), "certificates/server.keyfile") <= 0) {
+
+  // Certificate chain and private key:
+  if (SSL_CTX_load_verify_locations(ssl_ctx_s.get(), "certificates/ca-root.pem", nullptr) != 1){
+    print_errors_and_exit("Error loading ca-root.pem");
+  }
+  if (SSL_CTX_use_certificate_file(ssl_ctx_s.get(), "certificates/server-crt.pem", SSL_FILETYPE_PEM) <= 0) {
     print_errors_and_exit("Error loading server certificate");
   }
   if (SSL_CTX_use_PrivateKey_file(ssl_ctx_s.get(), "certificates/server-key.pem", SSL_FILETYPE_PEM) <= 0) {
     print_errors_and_exit("Error loading server private key");
   }
+  res = SSL_CTX_check_private_key(ssl_ctx_c.get());
+  if (res != 1) {
+    print_errors_and_exit("Error loading CAfile");
+  }
+
+  // Load and set CA file for verification of client certificates:
+  STACK_OF(X509_NAME)* stack = SSL_load_client_CA_file("certificates/ca-root.pem");
+  if (stack == nullptr) {
+    print_errors_and_exit("Cannot load client cert CA file");
+  }
+  SSL_CTX_set_client_CA_list(ssl_ctx_s.get(), stack);
+
+  // Switch on full verification of client certificates:
   SSL_CTX_set_verify(ssl_ctx_s.get(), SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT | SSL_VERIFY_CLIENT_ONCE, nullptr);
+
+  // Set up an SSL object with attached mem bios:
   UniquePtr<SSL> ssl_s{SSL_new(ssl_ctx_s.get())};
   BIO* rbio_s = BIO_new(BIO_s_mem());
   SSL_set0_rbio(ssl_s.get(), rbio_s);
   BIO* wbio_s = BIO_new(BIO_s_mem());
   SSL_set0_wbio(ssl_s.get(), wbio_s);
+
+  // And set us to accept:
   SSL_set_accept_state(ssl_s.get());
 
+  // Communicate until the handshake is over:
   int done = 0;
-  int res;
   while (done != 3) {
     shuffle(wbio_c, rbio_s, wbio_s, rbio_c);
     if ((done & 1) == 0) {
@@ -160,8 +196,11 @@ int main(int argc, char* argv[]) {
       }
     }
   }
+
+  // Verify the certificate:
   verify_the_certificate(ssl_c.get());
 
+  // And finally start service:
   std::string line;
   char serverbuffer[4096];
   size_t serverbufferLen = 0;

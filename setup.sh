@@ -54,7 +54,7 @@ openssl x509 -req -in certificates/server-key.csr -CA certificates/ca-root.pem -
 # inspect it:
 openssl x509 -in certificates/server-crt.pem -text -noout
 
-cat certificates/server-crt.pem certificates/ca-root.pem certificates/server-key.pem > certificates/server.keyfile
+cat certificates/server-crt.pem certificates/ca-root.pem > certificates/server-chain.pem
 
 # Creation of client authentication certificates:
 openssl genrsa -passout pass:abcd1234 -out certificates/client-key.pem 2048
@@ -87,6 +87,9 @@ openssl x509 -req -passin pass:abcd1234 -in certificates/client-req.pem -CA cert
 
 # Inspect:
 openssl x509 -in certificates/client-crt.pem -text -noout
+
+# Create chain file:
+cat certificates/client-crt.pem certificates/ca-root.pem > certificates/client-chain.pem
 
 # Export for browser:
 openssl pkcs12 -export -inkey certificates/client-key.pem -in certificates/client-crt.pem -out certificates/client.p12 -passout pass:abc
