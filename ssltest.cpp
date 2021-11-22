@@ -83,7 +83,7 @@ void shuffle(BIO* wbio_c, BIO* rbio_s, BIO* wbio_s, BIO* rbio_c) {
   exit(1);
 }
 
-void verify_the_certificate(SSL *ssl) {
+void verify_the_certificate(SSL *ssl, std::string const& who) {
   int err = SSL_get_verify_result(ssl);
   if (err != X509_V_OK) {
       const char *message = X509_verify_cert_error_string(err);
@@ -94,6 +94,26 @@ void verify_the_certificate(SSL *ssl) {
   if (cert == nullptr) {
       fprintf(stderr, "No certificate was presented by the server\n");
       exit(1);
+  }
+  X509_NAME* subj = X509_get_subject_name(cert);
+  if (subj != nullptr) {
+    //char buffer[128];
+    UniquePtr<BIO> buf{BIO_new(BIO_s_mem())};
+    X509_NAME_print_ex(buf.get(), subj, 0, XN_FLAG_ONELINE & ~ASN1_STRFLGS_ESC_MSB);
+    char* p;
+    BIO_get_mem_data(buf.get(), &p);
+    std::cout << "Subject in certificate of " << who << ":\n" << p << std::endl;
+    for (int i = 0; i < X509_NAME_entry_count(subj); ++i) {
+      X509_NAME_ENTRY* entry = X509_NAME_get_entry(subj, i);
+      ASN1_OBJECT* o = X509_NAME_ENTRY_get_object(entry);
+      ASN1_STRING* d = X509_NAME_ENTRY_get_data(entry);
+      //OBJ_obj2txt(buffer, 128, o, 0);
+      std::cout << "  Object: " << OBJ_nid2sn(OBJ_obj2nid(o));
+      (void) BIO_reset(buf.get());
+      ASN1_STRING_print(buf.get(), d);
+      BIO_get_mem_data(buf.get(), &p);
+      std::cout << ", Data: " << p << std::endl;
+    }
   }
   X509_free(cert);
 }
@@ -197,8 +217,9 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  // Verify the certificate:
-  verify_the_certificate(ssl_c.get());
+  // Verify the certificates:
+  verify_the_certificate(ssl_c.get(), "server");
+  verify_the_certificate(ssl_s.get(), "client");
 
   // And finally start service:
   std::string line;
